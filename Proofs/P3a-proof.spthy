@@ -1,0 +1,373 @@
+theory P3a begin
+
+// Function signature and definition of the equational theory E
+
+functions: fst/1, kdf/3, mac/2, pair/2, sdec/2, senc/2, snd/1
+equations:
+    fst(<x.1, x.2>) = x.1,
+    mac(m, k) = senc(m, k),
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+
+
+rule (modulo E) Register_psk:
+   [ Fr( ~k ) ] --> [ !Psk( $A, $B, ~k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_pskA:
+   [ !Psk( A, B, k ) ] --[ Reveal( A ) ]-> [ Out( k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_pskB:
+   [ !Psk( A, B, k ) ] --[ Reveal( B ) ]-> [ Out( k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Init:
+   [ Fr( ~id ), !Psk( A, B, k ) ]
+  --[ Create( ~id, 'I' ) ]->
+   [ St_A_0( A, ~id, B, k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Init:
+   [ Fr( ~id ), !Psk( A, B, k ) ]
+  --[ Create( ~id, 'R' ) ]->
+   [ St_B_0( B, ~id, A, k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Send_x:
+   [ Fr( ~x ), St_A_0( A, id, B, k ) ]
+  -->
+   [ St_A_1( A, id, B, k, ~x ), Out( ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Rec_x:
+   [ St_B_0( B, id, A, k ), In( x ) ] --> [ St_B_1( B, id, A, k, x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Send_y:
+   [ Fr( ~y ), St_B_1( B, id, A, k, x ) ]
+  --[ Running( B, A, <'I', 'R', x, ~y, kdf(k, x, ~y)> ) ]->
+   [ St_B_2( B, id, A, k, x, ~y, kdf(k, x, ~y) ), Out( ~y ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Rec_y:
+   [ St_A_1( A, id, B, k, x ), In( y ) ]
+  -->
+   [ St_A_2( A, id, B, k, x, y, kdf(k, x, y) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Send_mac_y:
+   [ St_A_2( A, id, B, k, x, y, Kab ) ]
+  --[ Running( A, B, <'R', 'I', x, y, Kab> ) ]->
+   [ St_A_3( A, id, B, k, x, y, Kab ), Out( mac(<'I', 'R', y>, Kab) )
+   ]
+
+  /*
+  rule (modulo AC) A_Send_mac_y:
+     [ St_A_2( A, id, B, k, x, y, Kab ) ]
+    --[ Running( A, B, <'R', 'I', x, y, Kab> ) ]->
+     [ St_A_3( A, id, B, k, x, y, Kab ), Out( senc(<'I', 'R', y>, Kab) )
+     ]
+  */
+
+rule (modulo E) B_Rec_mac_y:
+   [ St_B_2( B, id, A, k, x, y, Kab ), In( mac(<'I', 'R', y>, Kab) ) ]
+  --[
+  Commit( B, A, <'R', 'I', x, y, Kab> ), Honest( B ), Honest( A ),
+  Secret( B, Kab )
+  ]->
+   [ St_B_3( B, id, A, k, x, y, Kab ) ]
+
+  /*
+  rule (modulo AC) B_Rec_mac_y:
+     [ St_B_2( B, id, A, k, x, y, Kab ), In( senc(<'I', 'R', y>, Kab) )
+     ]
+    --[
+    Commit( B, A, <'R', 'I', x, y, Kab> ), Honest( B ), Honest( A ),
+    Secret( B, Kab )
+    ]->
+     [ St_B_3( B, id, A, k, x, y, Kab ) ]
+  */
+
+rule (modulo E) B_Send_mac_x:
+   [ St_B_3( B, id, A, k, x, y, Kab ) ]
+  --[ Finish( B, A, 'R', k, x, y, Kab ) ]->
+   [ St_B_4( B, id, A, k, x, y ), Out( mac(<'R', 'I', x>, Kab) ) ]
+
+  /*
+  rule (modulo AC) B_Send_mac_x:
+     [ St_B_3( B, id, A, k, x, y, Kab ) ]
+    --[ Finish( B, A, 'R', k, x, y, Kab ) ]->
+     [ St_B_4( B, id, A, k, x, y ), Out( senc(<'R', 'I', x>, Kab) ) ]
+  */
+
+rule (modulo E) A_Rec_mac_x:
+   [ St_A_3( A, id, B, k, x, y, Kab ), In( mac(<'R', 'I', x>, Kab) ) ]
+  --[
+  Commit( A, B, <'I', 'R', x, y, Kab> ), Honest( A ), Honest( B ),
+  Finish( A, B, 'I', k, x, y, Kab ), Secret( A, Kab )
+  ]->
+   [ St_A_4( A, id, B, k, x, y, Kab ) ]
+
+  /*
+  rule (modulo AC) A_Rec_mac_x:
+     [ St_A_3( A, id, B, k, x, y, Kab ), In( senc(<'R', 'I', x>, Kab) )
+     ]
+    --[
+    Commit( A, B, <'I', 'R', x, y, Kab> ), Honest( A ), Honest( B ),
+    Finish( A, B, 'I', k, x, y, Kab ), Secret( A, Kab )
+    ]->
+     [ St_A_4( A, id, B, k, x, y, Kab ) ]
+  */
+
+lemma executable:
+  exists-trace
+  "∃ a b x y k Kab #i #j.
+    (((((Finish( a, b, 'I', k, x, y, Kab ) @ #i) ∧
+        (Finish( b, a, 'R', k, x, y, Kab ) @ #j)) ∧
+       (∀ id1 id2 #k1 #k2.
+         ((Create( id1, 'I' ) @ #k1) ∧ (Create( id2, 'I' ) @ #k2)) ⇒
+         (id1 = id2))) ∧
+      (∀ id1 id2 #k1 #k2.
+        ((Create( id1, 'R' ) @ #k1) ∧ (Create( id2, 'R' ) @ #k2)) ⇒
+        (id1 = id2))) ∧
+     (¬(a = b))) ∧
+    (¬(∃ X #k.1. Reveal( X ) @ #k.1))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ a b x y k Kab #i #j.
+  (Finish( a, b, 'I', k, x, y, Kab ) @ #i) ∧
+  (Finish( b, a, 'R', k, x, y, Kab ) @ #j)
+ ∧
+  (∀ id1 id2 #k1 #k2.
+    (Create( id1, 'I' ) @ #k1) ∧ (Create( id2, 'I' ) @ #k2)
+   ⇒
+    id1 = id2) ∧
+  (∀ id1 id2 #k1 #k2.
+    (Create( id1, 'R' ) @ #k1) ∧ (Create( id2, 'R' ) @ #k2)
+   ⇒
+    id1 = id2) ∧
+  (¬(a = b)) ∧
+  (∀ X #k.1. (Reveal( X ) @ #k.1) ⇒ ⊥)"
+*/
+simplify
+solve( Finish( a, b, 'I', k, x, y, Kab ) @ #i )
+  case A_Rec_mac_x
+  solve( St_A_3( a, id, b, k, x, y, Kab ) ▶₀ #i )
+    case A_Send_mac_y
+    solve( Finish( $B, $A, 'R', ~k, ~x, y, kdf(~k, ~x, y) ) @ #j )
+      case B_Send_mac_x
+      solve( St_B_3( $B, id.1, $A, ~k, ~x, y, kdf(~k, ~x, y) ) ▶₀ #j )
+        case B_Rec_mac_y
+        solve( !KU( ~x ) @ #vk.3 )
+          case A_Send_x
+          solve( !KU( ~y ) @ #vk.2 )
+            case B_Send_y
+            solve( !KU( senc(<'R', 'I', ~x>, kdf(~k, ~x, ~y)) ) @ #vk.2 )
+              case B_Send_mac_x
+              solve( !KU( senc(<'I', 'R', ~y>, kdf(~k, ~x, ~y)) ) @ #vk.3 )
+                case A_Send_mac_y
+                SOLVED // trace found
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_Rec_mac_x
+  solve( St_A_3( a, id, b, k, x, y, Kab ) ▶₀ #i )
+    case A_Send_mac_y
+    solve( !KU( senc(<'R', 'I', ~x>, kdf(~k, ~x, y)) ) @ #vk )
+      case B_Send_mac_x
+      solve( (#i2 < #i)  ∥ (#i < #i2) )
+        case case_1
+        solve( Commit( a2, b2, <'I', 'R', ~x, ~y, kdf(~k, ~x, ~y)>
+               ) @ #i2 )
+          case A_Rec_mac_x
+          solve( St_A_3( a2, id.1, b2, k.1, ~x, ~y, kdf(~k, ~x, ~y)
+                 ) ▶₀ #i2 )
+            case A_Send_mac_y
+            by contradiction /* cyclic */
+          qed
+        qed
+      next
+        case case_2
+        solve( Commit( a2, b2, <'I', 'R', ~x, ~y, kdf(~k, ~x, ~y)>
+               ) @ #i2 )
+          case A_Rec_mac_x
+          solve( St_A_3( a2, id.1, b2, k.1, ~x, ~y, kdf(~k, ~x, ~y)
+                 ) ▶₀ #i2 )
+            case A_Send_mac_y
+            by contradiction /* cyclic */
+          qed
+        qed
+      qed
+    next
+      case c_senc
+      solve( !KU( kdf(~k, ~x, y) ) @ #vk.3 )
+        case c_kdf
+        solve( !KU( ~k ) @ #vk.8 )
+          case Reveal_pskA
+          by contradiction /* from formulas */
+        next
+          case Reveal_pskB
+          by contradiction /* from formulas */
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'R', 'I', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'R', 'I', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'R', 'I', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_Rec_mac_y
+  solve( St_B_2( a, id, b, k, x, y, Kab ) ▶₀ #i )
+    case B_Send_y
+    solve( !KU( senc(<'I', 'R', ~y>, kdf(~k, x, ~y)) ) @ #vk )
+      case A_Send_mac_y
+      solve( (#i2 < #i)  ∥ (#i < #i2) )
+        case case_1
+        solve( Commit( a2, b2, <'R', 'I', ~x, ~y, kdf(~k, ~x, ~y)>
+               ) @ #i2 )
+          case B_Rec_mac_y
+          solve( St_B_2( a2, id.1, b2, k.1, ~x, ~y, kdf(~k, ~x, ~y)
+                 ) ▶₀ #i2 )
+            case B_Send_y
+            by contradiction /* cyclic */
+          qed
+        qed
+      next
+        case case_2
+        solve( Commit( a2, b2, <'R', 'I', ~x, ~y, kdf(~k, ~x, ~y)>
+               ) @ #i2 )
+          case B_Rec_mac_y
+          solve( St_B_2( a2, id.1, b2, k.1, ~x, ~y, kdf(~k, ~x, ~y)
+                 ) ▶₀ #i2 )
+            case B_Send_y
+            by contradiction /* cyclic */
+          qed
+        qed
+      qed
+    next
+      case c_senc
+      solve( !KU( kdf(~k, x, ~y) ) @ #vk.3 )
+        case c_kdf
+        solve( !KU( ~k ) @ #vk.8 )
+          case Reveal_pskA
+          by contradiction /* from formulas */
+        next
+          case Reveal_pskB
+          by contradiction /* from formulas */
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma secrecy:
+  all-traces
+  "∀ A x #i.
+    (Secret( A, x ) @ #i) ⇒
+    ((¬(∃ #j. K( x ) @ #j)) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ A x #i.
+  (Secret( A, x ) @ #i)
+ ∧
+  (∃ #j. (K( x ) @ #j)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Secret( A, x ) @ #i )
+  case A_Rec_mac_x
+  solve( St_A_3( A, id, B, k, x, y, x.1 ) ▶₀ #i )
+    case A_Send_mac_y
+    solve( !KU( kdf(~k, ~x, y) ) @ #vk )
+      case c_kdf
+      solve( !KU( ~k ) @ #vk.3 )
+        case Reveal_pskA
+        by contradiction /* from formulas */
+      next
+        case Reveal_pskB
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+next
+  case B_Rec_mac_y
+  solve( St_B_2( A, id, A.1, k, x, y, x.1 ) ▶₀ #i )
+    case B_Send_y
+    solve( !KU( kdf(~k, x, ~y) ) @ #vk )
+      case c_kdf
+      solve( !KU( ~k ) @ #vk.3 )
+        case Reveal_pskA
+        by contradiction /* from formulas */
+      next
+        case Reveal_pskB
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end

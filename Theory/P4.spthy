@@ -1,0 +1,117 @@
+theory P4
+begin
+
+builtins: symmetric-encryption, hashing
+
+functions: mac/2, kdf/3
+
+equations: mac(m, k) = senc(m, k)
+
+// pre-shared key distribution
+rule Register_psk:
+  [ Fr(~k) ]
+  -->
+  [ !Psk($A, $B, ~k)] 
+
+rule Reveal_pskA:
+  [ !Psk(A, B, k) ] --[ Reveal(A) ]-> [ Out(k) ]
+
+rule Reveal_pskB:
+  [ !Psk(A, B, k) ] --[ Reveal(B) ]-> [ Out(k) ]
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: x, [s]h(k(A,B))
+    1. A <- B: y
+    2. A -> B: ['I', 'R', y]Kab
+    2. A <- B: ['R', 'I', x]Kab
+  }
+*/
+
+rule A_Init:
+  [ Fr(~id), 
+  !Psk(A, B, k)] 
+  --[Create(~id, 'I')]-> 
+  [ St_A_0(A, ~id, B, k) ]
+
+rule B_Init:
+  [ Fr(~id), 
+  !Psk(A, B, k)] 
+  --[Create(~id, 'R')]-> 
+  [ St_B_0(B, ~id, A, k) ]
+
+rule A_Send_x_s:
+  [ Fr(~x), Fr(~s), St_A_0(A, id, B, k) ] --> [ St_A_1(A, id, B, k, ~x, ~s), Out(<~x, senc(~s, h(k))>) ]
+
+rule B_Rec_x_s:
+  [ St_B_0(B, id, A, k), In(<x, senc(s, h(k))>) ] --> [ St_B_1(B, id, A, k, x, s) ]
+  
+rule B_Send_y:
+  let Kab = kdf(s, x, ~y)
+  in
+  [ Fr(~y), St_B_1(B, id, A, k, x, s) ] 
+  --[ Running(B, A, <'I', 'R', <x, ~y, Kab>>) ]-> 
+  [ St_B_2(B, id, A, k, x, s, ~y, Kab), Out(~y) ]
+  
+rule A_Rec_y:
+  let Kab = kdf(s, x, y)
+  in
+  [ St_A_1(A, id, B, k, x, s), In(y) ] --> [ St_A_2(A, id, B, k, x, s, y, Kab) ]
+  
+rule A_Send_mac_y:
+  [ St_A_2(A, id, B, k, x, s, y, Kab) ] 
+  --[ Running(A, B, <'R', 'I', <x, y, Kab>>) ]-> 
+  [ St_A_3(A, id, B, k, x, s, y, Kab), Out(mac(<'I', 'R', y>, Kab)) ]
+  
+rule B_Rec_mac_y:
+  [ St_B_2(B, id, A, k, x, s, y, Kab), In(mac(<'I', 'R', y>, Kab)) ]
+  --[ Commit(B, A, <'R', 'I', <x, y, Kab>>) , Honest(B) , Honest(A), Secret(B, Kab) ]->
+  [ St_B_3(B, id, A, k, x, s, y, Kab) ]
+
+rule B_Send_mac_x:
+  [ St_B_3(B, id, A, k, x, s, y, Kab) ] 
+  --[ Finish(B, A, 'R', k, x, y, Kab)]->
+  [ St_B_4(B, id, A, k, x, s, y) , Out(mac(<'R', 'I', x>, Kab)) ]
+
+rule A_Rec_mac_x:
+  [ St_A_3(A, id, B, k, x, s, y, Kab), In(mac(<'R', 'I', x>, Kab)) ]
+  --[ Commit(A, B, <'I', 'R', <x, y, Kab>>), Honest(A), Honest(B), Finish(A, B, 'I', k, x, y, Kab), Secret(A, Kab) ]->
+  [ St_A_4(A, id, B, k, x, s, y, Kab) ]
+
+// This lemma gets verified
+lemma executable:
+  exists-trace
+    "Ex a b x y k Kab #i #j.
+      Finish(a, b, 'I', k, x, y, Kab) @i
+      & Finish(b, a, 'R', k, x, y, Kab) @j
+      & (All id1 id2 #k1 #k2. Create(id1, 'I') @k1 & Create(id2, 'I') @k2 ==> id1 = id2)
+      & (All id1 id2 #k1 #k2. Create(id1, 'R') @k1 & Create(id2, 'R') @k2 ==> id1 = id2)
+      & not(a = b)
+      & not(Ex X #k. Reveal(X)@k)"
+
+// This lemma gets verified
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma gets verified
+lemma injectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j 
+              & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>) @i2
+                                 & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma gets verified
+lemma secrecy:
+  "All A x #i.
+    Secret(A,x) @i ==>
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+end

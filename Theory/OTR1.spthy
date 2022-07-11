@@ -1,0 +1,66 @@
+theory OTR1
+begin
+
+builtins: signing, hashing, diffie-hellman
+
+// pre-shared key distribution
+rule Register_Ltk:
+  [ Fr(~sk) ] --> [ !Ltk($A, ~sk), !Pk($A, pk(~sk)), Out(pk(~sk)) ]
+  
+rule Reveal_Ltk:
+  [ !Ltk(A, sk) ] --[ Reveal(A) ]-> [ Out(sk) ]
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: g^x, {g^x}skA, vkA
+    1. A <- B: g^y, {g^y}skB, vkB
+  }
+*/
+
+rule A_Init:
+  [ Fr(~id), 
+  !Ltk(A, skA), 
+  !Pk(B, pkB) ] 
+  --[Create(~id, 'I')]-> 
+  [ St_A_0(A, ~id, B, skA, pkB) ]
+
+rule B_Init:
+  [ Fr(~id), 
+  !Ltk(B, skB), 
+  !Pk(A, pkA) ] 
+  --[Create(~id, 'R')]-> 
+  [ St_B_0(B, ~id, A, skB, pkA) ]
+
+rule A_Send:
+  [ St_A_0(A, id, B, skA, pkB), Fr(~x) ] --> [ St_A_1(A, id, B, skA, pkB, ~x) , Out(<'g'^~x, sign('g'^~x, skA), pk(skA)>) ]
+
+rule B_Rec:
+  [ St_B_0(B, id, A, skB, pkA), In(<gx, sgx, pkA>) ] --[ Eq(verify(sgx, gx, pkA), true) ]-> [ St_B_1(B, id, A, skB, pkA, gx) ]
+  
+rule B_Send:
+  let Kab = h(gx^~y) in
+  [ St_B_1(B, id, A, skB, pkA, gx), Fr(~y) ] --[ Secret(B, Kab), Honest(B) , Honest(A) ]-> [ St_B_2(B, id, A, skB, pkA, gx, ~y, Kab) , Out(<'g'^~y, sign('g'^~y, skB), pk(skB)>) ]
+  
+rule A_Rec:
+  let Kab = h(gy^x) in
+  [ St_A_1(A, id, B, skA, pkB, x), In(<gy, sgy, pkB>) ] --[ Eq(verify(sgy, gy, pkB), true), Secret(A, Kab), Honest(A) , Honest(B) ]-> [ St_A_2(A, id, B, skA, pkB, x, gy, Kab) ]
+  
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
+  
+restriction unique_i:
+	"All id1 id2 #k1 #k2. Create(id1, 'I') @k1 & Create(id2, 'I') @k2 ==> id1 = id2"
+	
+restriction unique_r:
+	"All id1 id2 #k1 #k2. Create(id1, 'R') @k1 & Create(id2, 'R') @k2 ==> id1 = id2"
+
+// This lemma gets verified
+lemma executability:
+  exists-trace
+    "Ex A B Kab #i #j.
+      Secret(A, Kab)@i
+      & Secret(B, Kab)@j
+      & not (A = B)
+      & not (Ex X #k. Reveal(X)@k)"
+
+end

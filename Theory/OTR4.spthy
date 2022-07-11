@@ -1,0 +1,135 @@
+theory OTR4
+begin
+
+builtins: signing, hashing, diffie-hellman, symmetric-encryption
+
+functions: mac/2
+
+equations: mac(m, k) = senc(m, k)
+
+// pre-shared key distribution
+rule Register_Ltk:
+  [ Fr(~sk) ] --> [ !Ltk($A, ~sk), !Pk($A, pk(~sk)), Out(pk(~sk)) ]
+  
+rule Reveal_Ltk:
+  [ !Ltk(A, sk) ] --[ Reveal(A) ]-> [ Out(sk) ]
+
+/* We formalize the following protocol
+  protocol {
+    1. A -> B: g^x
+    1. A <- B: g^y
+    2. A -> B: 'A', {g^y, g^x}skA, ['0', 'A']Kab, vkA
+    2. A <- B: 'B', {g^x, g^y}skB, ['1', 'B']Kab, vkB
+  }
+*/
+
+rule A_Init:
+  [ Fr(~id), 
+  !Ltk(A, skA), 
+  !Pk(B, pkB) ] 
+  --[Create(~id, 'I')]-> 
+  [ St_A_0(A, ~id, B, skA, pkB) ]
+
+rule B_Init:
+  [ Fr(~id), 
+  !Ltk(B, skB), 
+  !Pk(A, pkA) ] 
+  --[Create(~id, 'R')]-> 
+  [ St_B_0(B, ~id, A, skB, pkA) ]
+
+rule A_Send_1:
+  [ St_A_0(A, id, B, skA, pkB), Fr(~x) ] --> [ St_A_1(A, id, B, skA, pkB, ~x) , Out('g'^~x) ]
+
+rule B_Rec_1:
+  [ St_B_0(B, id, A, skB, pkA), In(gx) ] --> [ St_B_1(B, id, A, skB, pkA, gx) ]
+  
+rule B_Send_1:
+  let Kab = h(gx^~y)
+  in
+  [ Fr(~y), St_B_1(B, id, A, skB, pkA, gx) ] --[ Running(B, A, <'I', 'R', Kab>), Honest(B), Honest(A)]-> [ St_B_2(B, id, A, skB, pkA, gx, ~y), Out('g'^~y) ]
+
+rule A_Rec_1:
+  let Kab = h(gy^x)
+  in [ St_A_1(A, id, B, skA, pkB, x), In(gy) ] --[ Running(A, B, <'R', 'I', Kab>), Honest(A), Honest(B)]-> [ St_A_2(A, id, B, skA, pkB, x, gy, Kab)]
+  
+rule A_Send_2:
+  let Kab = h(gy^x)
+  in [ St_A_2(A, id, B, skA, pkB, x, gy, Kab) ] --> [ St_A_3(A, id, B, skA, pkB, x, gy, Kab), Out(<A, sign(<gy, 'g'^x>, skA), mac(<'0', A>, Kab), pk(skA)>)]
+  
+rule B_Rec_2:
+  let Kab = h(gx^y)
+  in [ St_B_2(B, id, A, skB, pkA, gx, y), In(<A, sig, mac(<'0', A>, Kab), pkA>) ] --[ Eq(verify(sig, <'g'^y, gx>, pkA), true), Commit(B, A, <'R', 'I', Kab>), Secret(B, Kab), Honest(B), Honest(A)]-> [ St_B_3(B, id, A, skB, pkA, gx, y, Kab)]
+  
+rule B_Send_2:
+  let Kab = h(gx^y)
+  in [ St_B_3(B, id, A, skB, pkA, gx, y, Kab) ] --> [ St_B_4(B, id, A, skB, pkA, gx, y, Kab), Out(<B, sign(<gx, 'g'^y>, skB), mac(<'1', B>, Kab), pk(skB)>)]
+    
+rule A_Rec_2:
+  let Kab = h(gy^x)
+  in [ St_A_3(A, id, B, skA, pkB, x, gy, Kab), In(<B, sig, mac(<'1', B>, Kab), pkB>) ] --[ Eq(verify(sig, <'g'^x, gy>, pkB), true), Commit(A, B, <'I', 'R', Kab>), Secret(A, Kab), Honest(A), Honest(B)]-> [ St_A_4(A, id, B, skA, pkB, x, gy, Kab) ]
+  
+restriction Equality:
+  "All x y #i. Eq(x,y) @i ==> x = y"
+  
+restriction unique_i:
+	"All id1 id2 #k1 #k2. Create(id1, 'I') @k1 & Create(id2, 'I') @k2 ==> id1 = id2"
+	
+restriction unique_r:
+	"All id1 id2 #k1 #k2. Create(id1, 'R') @k1 & Create(id2, 'R') @k2 ==> id1 = id2"
+
+// This lemma gets verified
+lemma executability:
+  exists-trace
+    "Ex A B Kab #i #j.
+      Secret(A, Kab)@i
+      & Secret(B, Kab)@j
+      & not (A = B)
+      & not (Ex X #k. Reveal(X)@k)"
+
+// This lemma gets verified      
+lemma noninjectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma gets verified
+lemma injectiveagreementINITIATOR:
+  "All a b t #i. 
+    Commit(a,b,<'I','R',t>) @i
+    ==> (Ex #j. Running(b,a,<'I','R',t>) @j 
+        & not (Ex a2 b2 #i2. Commit(a2,b2,<'I','R',t>) @i2
+                           & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma does not get verified
+lemma noninjectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma does not get verified
+lemma injectiveagreementRESPONDER:
+  "All a b t #i. 
+    Commit(a,b,<'R','I',t>) @i
+    ==> (Ex #j. Running(b,a,<'R','I',t>) @j 
+              & not (Ex a2 b2 #i2. Commit(a2,b2,<'R','I',t>) @i2
+                                 & not (#i2 = #i)))
+              | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma gets verified              
+lemma secrecy:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i)"
+
+// This lemma gets verified
+lemma secrecy_PFS:
+  "All A x #i. 
+    Secret(A,x) @i ==> 
+    not (Ex #j. K(x)@j)
+        | (Ex X #r. Reveal(X)@r & Honest(X) @i & r < i)"
+            
+end

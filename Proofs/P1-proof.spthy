@@ -1,0 +1,162 @@
+theory P1 begin
+
+// Function signature and definition of the equational theory E
+
+functions: fst/1, mac/2, pair/2, sdec/2, senc/2, snd/1
+equations:
+    fst(<x.1, x.2>) = x.1,
+    mac(m, k) = senc(m, k),
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2
+
+
+
+rule (modulo E) Register_psk:
+   [ Fr( ~k ) ] --> [ !Psk( $A, $B, ~k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_pskA:
+   [ !Psk( A, B, k ) ] --[ Reveal( A ) ]-> [ Out( k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_pskB:
+   [ !Psk( A, B, k ) ] --[ Reveal( B ) ]-> [ Out( k ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Init:
+   [ Fr( ~id ), !Psk( A, B, kAB ), !Psk( B, A, kBA ) ]
+  --[ Create( ~id, 'I' ), RegisterKeys( A, B, kAB, kBA ) ]->
+   [ St_A_0( A, ~id, B, kAB, kBA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Init:
+   [ Fr( ~id ), !Psk( A, B, kAB ), !Psk( B, A, kBA ) ]
+  --[ Create( ~id, 'R' ), RegisterKeys( B, A, kBA, kAB ) ]->
+   [ St_B_0( B, ~id, A, kBA, kAB ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Send_x:
+   [ Fr( ~x ), St_A_0( A, id, B, kAB, kBA ) ]
+  -->
+   [ St_A_1( A, id, B, kAB, kBA, ~x ), Out( ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Rec_x:
+   [ St_B_0( B, id, A, kBA, kAB ), In( x ) ]
+  -->
+   [ St_B_1( B, id, A, kBA, kAB, x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Send_mac_x:
+   [ St_B_1( B, id, A, kBA, kAB, x ) ]
+  --[ Running( B, A, <'I', 'R', x> ) ]->
+   [ St_B_2( B, id, A, kBA, kAB, x ), Out( mac(x, kBA) ) ]
+
+  /*
+  rule (modulo AC) B_Send_mac_x:
+     [ St_B_1( B, id, A, kBA, kAB, x ) ]
+    --[ Running( B, A, <'I', 'R', x> ) ]->
+     [ St_B_2( B, id, A, kBA, kAB, x ), Out( senc(x, kBA) ) ]
+  */
+
+rule (modulo E) A_Rec_mac_x:
+   [ St_A_1( A, id, B, kAB, kBA, x ), In( mac(x, kBA) ) ]
+  --[
+  Commit( A, B, <'I', 'R', x> ), Honest( A ), Honest( B ), Finish( )
+  ]->
+   [ St_A_2( A, id, B, kAB, kBA, x ) ]
+
+  /*
+  rule (modulo AC) A_Rec_mac_x:
+     [ St_A_1( A, id, B, kAB, kBA, x ), In( senc(x, kBA) ) ]
+    --[
+    Commit( A, B, <'I', 'R', x> ), Honest( A ), Honest( B ), Finish( )
+    ]->
+     [ St_A_2( A, id, B, kAB, kBA, x ) ]
+  */
+
+restriction Unidirectional_Keys:
+  "∀ a b kab kba #i.
+    ((RegisterKeys( a, b, kab, kba ) @ #i) ∧ (kab = kba)) ⇒ (⊥)"
+  // safety formula
+
+lemma executable:
+  exists-trace
+  "∃ #i. (Finish( ) @ #i) ∧ (¬(∃ X #j. Reveal( X ) @ #j))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ #i. (Finish( ) @ #i) ∧ ∀ X #j. (Reveal( X ) @ #j) ⇒ ⊥"
+*/
+simplify
+solve( St_A_1( A, id, B, kAB, kBA, x ) ▶₀ #i )
+  case A_Send_x
+  solve( !KU( senc(~x, ~k.1) ) @ #vk )
+    case B_Send_mac_x
+    solve( !KU( ~x ) @ #vk.1 )
+      case A_Send_x
+      SOLVED // trace found
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( St_A_1( a, id, b, kAB, kBA, t ) ▶₀ #i )
+  case A_Send_x
+  solve( !KU( senc(~x, ~k.1) ) @ #vk )
+    case B_Send_mac_x
+    solve( (#i2 < #i)  ∥ (#i < #i2) )
+      case case_1
+      solve( St_A_1( a2, id.1, b2, kAB, kBA, ~x ) ▶₀ #i2 )
+        case A_Send_x
+        by contradiction /* cyclic */
+      qed
+    next
+      case case_2
+      solve( St_A_1( a2, id.1, b2, kAB, kBA, ~x ) ▶₀ #i2 )
+        case A_Send_x
+        by contradiction /* cyclic */
+      qed
+    qed
+  next
+    case c_senc
+    solve( !KU( ~k.1 ) @ #vk.2 )
+      case Reveal_pskA
+      by contradiction /* from formulas */
+    next
+      case Reveal_pskB
+      by contradiction /* from formulas */
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end

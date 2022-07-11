@@ -1,0 +1,1270 @@
+theory OTR3 begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: fst/1, h/1, pair/2, pk/1, sign/2, snd/1, true/0,
+           verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+
+
+rule (modulo E) Register_Ltk:
+   [ Fr( ~sk ) ]
+  -->
+   [ !Ltk( $A, ~sk ), !Pk( $A, pk(~sk) ), Out( pk(~sk) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_Ltk:
+   [ !Ltk( A, sk ) ] --[ Reveal( A ) ]-> [ Out( sk ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Init:
+   [ Fr( ~id ), !Ltk( A, skA ), !Pk( B, pkB ) ]
+  --[ Create( ~id, 'I' ) ]->
+   [ St_A_0( A, ~id, B, skA, pkB ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Init:
+   [ Fr( ~id ), !Ltk( B, skB ), !Pk( A, pkA ) ]
+  --[ Create( ~id, 'R' ) ]->
+   [ St_B_0( B, ~id, A, skB, pkA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) A_Send:
+   [ St_A_0( A, id, B, skA, pkB ), Fr( ~x ) ]
+  --[ Running( A, B, <'R', 'I', 'g'^~x> ) ]->
+   [
+   St_A_1( A, id, B, skA, pkB, ~x ),
+   Out( <'g'^~x, sign(<'I', 'g'^~x, B>, skA), pk(skA)> )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) B_Rec:
+   [ St_B_0( B, id, A, skB, pkA ), In( <gx, sgx, pkA> ) ]
+  --[ Eq( verify(sgx, <'I', gx, B>, pkA), true ) ]->
+   [ St_B_1( B, id, A, skB, pkA, gx ) ]
+
+  /*
+  rule (modulo AC) B_Rec:
+     [ St_B_0( B, id, A, skB, pkA ), In( <gx, sgx, pkA> ) ]
+    --[ Eq( z, true ) ]->
+     [ St_B_1( B, id, A, skB, pkA, gx ) ]
+    variants (modulo AC)
+    1. B     = B.9
+       gx    = gx.9
+       pkA   = pkA.9
+       sgx   = sgx.9
+       z     = verify(sgx.9, <'I', gx.9, B.9>, pkA.9)
+    
+    2. B     = x.9
+       gx    = x.10
+       pkA   = pk(x.12)
+       sgx   = sign(<'I', x.10, x.9>, x.12)
+       z     = true
+  */
+
+rule (modulo E) B_Send:
+   [ St_B_1( B, id, A, skB, pkA, gx ), Fr( ~y ) ]
+  --[
+  Secret( B, h(gx^~y) ), Honest( B ), Honest( A ),
+  Running( B, A, <'I', 'R', h(gx^~y), gx, 'g'^~y> ),
+  Commit( B, A, <'R', 'I', gx> )
+  ]->
+   [
+   St_B_2( B, id, A, skB, pkA, gx, ~y, h(gx^~y) ),
+   Out( <'g'^~y, sign(<'R', 'g'^~y, A>, skB), pk(skB)> )
+   ]
+
+  /*
+  rule (modulo AC) B_Send:
+     [ St_B_1( B, id, A, skB, pkA, gx ), Fr( ~y ) ]
+    --[
+    Secret( B, h(z) ), Honest( B ), Honest( A ),
+    Running( B, A, <'I', 'R', h(z), gx, 'g'^~y> ),
+    Commit( B, A, <'R', 'I', gx> )
+    ]->
+     [
+     St_B_2( B, id, A, skB, pkA, gx, ~y, h(z) ),
+     Out( <'g'^~y, sign(<'R', 'g'^~y, A>, skB), pk(skB)> )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.13
+       gx    = gx.16
+       z     = gx.16^~y.13
+    
+    2. ~y    = ~y.17
+       gx    = z.24^inv(~y.17)
+       z     = z.24
+    
+    3. ~y    = ~y.77
+       gx    = x.151^x.152
+       z     = x.151^(~y.77*x.152)
+    
+    4. ~y    = ~y.80
+       gx    = x.157^inv((~y.80*x.158))
+       z     = x.157^inv(x.158)
+    
+    5. ~y    = ~y.80
+       gx    = x.157^(x.158*inv(~y.80))
+       z     = x.157^x.158
+    
+    6. ~y    = ~y.81
+       gx    = x.158^(x.159*inv((~y.81*x.160)))
+       z     = x.158^(x.159*inv(x.160))
+  */
+
+rule (modulo E) A_Rec:
+   [ St_A_1( A, id, B, skA, pkB, x ), In( <gy, sgy, pkB> ) ]
+  --[
+  Eq( verify(sgy, <'R', gy, A>, pkB), true ), Secret( A, h(gy^x) ),
+  Honest( A ), Honest( B ),
+  Commit( A, B, <'I', 'R', h(gy^x), 'g'^x, gy> )
+  ]->
+   [ St_A_2( A, id, B, skA, pkB, x, gy, h(gy^x) ) ]
+
+  /*
+  rule (modulo AC) A_Rec:
+     [ St_A_1( A, id, B, skA, pkB, x ), In( <gy, sgy, pkB> ) ]
+    --[
+    Eq( z.1, true ), Secret( A, h(z) ), Honest( A ), Honest( B ),
+    Commit( A, B, <'I', 'R', h(z), z.2, gy> )
+    ]->
+     [ St_A_2( A, id, B, skA, pkB, x, gy, h(z) ) ]
+    variants (modulo AC)
+     1. A     = A.20
+        gy    = gy.22
+        pkB   = pkB.24
+        sgy   = sgy.25
+        x     = one
+        z     = gy.22
+        z.1   = verify(sgy.25, <'R', gy.22, A.20>, pkB.24)
+        z.2   = 'g'
+    
+     2. A     = A.22
+        gy    = gy.24
+        pkB   = pkB.26
+        sgy   = sgy.27
+        x     = x.29
+        z     = gy.24^x.29
+        z.1   = verify(sgy.27, <'R', gy.24, A.22>, pkB.26)
+        z.2   = 'g'^x.29
+    
+     3. A     = A.23
+        gy    = z.31^inv(x.30)
+        pkB   = pkB.27
+        sgy   = sgy.28
+        x     = x.30
+        z     = z.31
+        z.1   = verify(sgy.28, <'R', z.31^inv(x.30), A.23>, pkB.27)
+        z.2   = 'g'^x.30
+    
+     4. A     = A.29
+        gy    = z.37^x.56
+        pkB   = pkB.33
+        sgy   = sgy.34
+        x     = inv(x.56)
+        z     = z.37
+        z.1   = verify(sgy.34, <'R', z.37^x.56, A.29>, pkB.33)
+        z.2   = 'g'^inv(x.56)
+    
+     5. A     = A.29
+        gy    = x.55^x.56
+        pkB   = pkB.33
+        sgy   = sgy.34
+        x     = x.36
+        z     = x.55^(x.36*x.56)
+        z.1   = verify(sgy.34, <'R', x.55^x.56, A.29>, pkB.33)
+        z.2   = 'g'^x.36
+    
+     6. A     = A.29
+        gy    = x.55^(x.56*inv(x.36))
+        pkB   = pkB.33
+        sgy   = sgy.34
+        x     = x.36
+        z     = x.55^x.56
+        z.1   = verify(sgy.34, <'R', x.55^(x.56*inv(x.36)), A.29>, pkB.33)
+        z.2   = 'g'^x.36
+    
+     7. A     = A.30
+        gy    = z.38^(x.57*inv(x.58))
+        pkB   = pkB.34
+        sgy   = sgy.35
+        x     = (x.58*inv(x.57))
+        z     = z.38
+        z.1   = verify(sgy.35, <'R', z.38^(x.57*inv(x.58)), A.30>, pkB.34)
+        z.2   = 'g'^(x.58*inv(x.57))
+    
+     8. A     = A.30
+        gy    = x.56^inv((x.37*x.58))
+        pkB   = pkB.34
+        sgy   = sgy.35
+        x     = x.37
+        z     = x.56^inv(x.58)
+        z.1   = verify(sgy.35, <'R', x.56^inv((x.37*x.58)), A.30>, pkB.34)
+        z.2   = 'g'^x.37
+    
+     9. A     = A.30
+        gy    = x.56^(x.57*x.58)
+        pkB   = pkB.34
+        sgy   = sgy.35
+        x     = inv(x.57)
+        z     = x.56^x.58
+        z.1   = verify(sgy.35, <'R', x.56^(x.57*x.58), A.30>, pkB.34)
+        z.2   = 'g'^inv(x.57)
+    
+    10. A     = A.31
+        gy    = x.57^(x.58*x.59*inv(x.60))
+        pkB   = pkB.35
+        sgy   = sgy.36
+        x     = (x.60*inv(x.58))
+        z     = x.57^x.59
+        z.1   = verify(sgy.36, <'R', x.57^(x.58*x.59*inv(x.60)), A.31>,
+                       pkB.35)
+        z.2   = 'g'^(x.60*inv(x.58))
+    
+    11. A     = A.31
+        gy    = x.57^(x.58*inv((x.38*x.60)))
+        pkB   = pkB.35
+        sgy   = sgy.36
+        x     = x.38
+        z     = x.57^(x.58*inv(x.60))
+        z.1   = verify(sgy.36, <'R', x.57^(x.58*inv((x.38*x.60))), A.31>,
+                       pkB.35)
+        z.2   = 'g'^x.38
+    
+    12. A     = A.31
+        gy    = x.57^(x.58*inv((x.59*x.60)))
+        pkB   = pkB.35
+        sgy   = sgy.36
+        x     = (x.59*inv(x.58))
+        z     = x.57^inv(x.60)
+        z.1   = verify(sgy.36, <'R', x.57^(x.58*inv((x.59*x.60))), A.31>,
+                       pkB.35)
+        z.2   = 'g'^(x.59*inv(x.58))
+    
+    13. A     = A.32
+        gy    = gy.34
+        pkB   = pk(x.62)
+        sgy   = sign(<'R', gy.34, A.32>, x.62)
+        x     = x.39
+        z     = gy.34^x.39
+        z.1   = true
+        z.2   = 'g'^x.39
+    
+    14. A     = A.32
+        gy    = gy.34
+        pkB   = pk(x.62)
+        sgy   = sign(<'R', gy.34, A.32>, x.62)
+        x     = one
+        z     = gy.34
+        z.1   = true
+        z.2   = 'g'
+    
+    15. A     = A.32
+        gy    = x.58^(x.59*x.60*inv((x.61*x.62)))
+        pkB   = pkB.36
+        sgy   = sgy.37
+        x     = (x.61*inv(x.59))
+        z     = x.58^(x.60*inv(x.62))
+        z.1   = verify(sgy.37,
+                       <'R', x.58^(x.59*x.60*inv((x.61*x.62))), A.32>, pkB.36)
+        z.2   = 'g'^(x.61*inv(x.59))
+    
+    16. A     = A.33
+        gy    = z.41^x.62
+        pkB   = pk(x.64)
+        sgy   = sign(<'R', z.41^x.62, A.33>, x.64)
+        x     = inv(x.62)
+        z     = z.41
+        z.1   = true
+        z.2   = 'g'^inv(x.62)
+    
+    17. A     = A.33
+        gy    = z.41^inv(x.40)
+        pkB   = pk(x.64)
+        sgy   = sign(<'R', z.41^inv(x.40), A.33>, x.64)
+        x     = x.40
+        z     = z.41
+        z.1   = true
+        z.2   = 'g'^x.40
+    
+    18. A     = A.33
+        gy    = x.61^x.62
+        pkB   = pk(x.64)
+        sgy   = sign(<'R', x.61^x.62, A.33>, x.64)
+        x     = x.40
+        z     = x.61^(x.40*x.62)
+        z.1   = true
+        z.2   = 'g'^x.40
+    
+    19. A     = A.34
+        gy    = z.42^(x.63*inv(x.64))
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', z.42^(x.63*inv(x.64)), A.34>, x.66)
+        x     = (x.64*inv(x.63))
+        z     = z.42
+        z.1   = true
+        z.2   = 'g'^(x.64*inv(x.63))
+    
+    20. A     = A.34
+        gy    = x.60^x.61
+        pkB   = pkB.38
+        sgy   = sgy.39
+        x     = inv((x.61*x.66))
+        z     = x.60^inv(x.66)
+        z.1   = verify(sgy.39, <'R', x.60^x.61, A.34>, pkB.38)
+        z.2   = 'g'^inv((x.61*x.66))
+    
+    21. A     = A.34
+        gy    = x.60^x.61
+        pkB   = pkB.38
+        sgy   = sgy.39
+        x     = (x.66*inv(x.61))
+        z     = x.60^x.66
+        z.1   = verify(sgy.39, <'R', x.60^x.61, A.34>, pkB.38)
+        z.2   = 'g'^(x.66*inv(x.61))
+    
+    22. A     = A.34
+        gy    = x.60^inv(x.61)
+        pkB   = pkB.38
+        sgy   = sgy.39
+        x     = inv(x.66)
+        z     = x.60^inv((x.61*x.66))
+        z.1   = verify(sgy.39, <'R', x.60^inv(x.61), A.34>, pkB.38)
+        z.2   = 'g'^inv(x.66)
+    
+    23. A     = A.34
+        gy    = x.60^inv(x.61)
+        pkB   = pkB.38
+        sgy   = sgy.39
+        x     = (x.61*x.66)
+        z     = x.60^x.66
+        z.1   = verify(sgy.39, <'R', x.60^inv(x.61), A.34>, pkB.38)
+        z.2   = 'g'^(x.61*x.66)
+    
+    24. A     = A.34
+        gy    = x.62^inv((x.41*x.64))
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.62^inv((x.41*x.64)), A.34>, x.66)
+        x     = x.41
+        z     = x.62^inv(x.64)
+        z.1   = true
+        z.2   = 'g'^x.41
+    
+    25. A     = A.34
+        gy    = x.62^(x.63*x.64)
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.62^(x.63*x.64), A.34>, x.66)
+        x     = inv(x.63)
+        z     = x.62^x.64
+        z.1   = true
+        z.2   = 'g'^inv(x.63)
+    
+    26. A     = A.34
+        gy    = x.62^(x.63*inv(x.41))
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.62^(x.63*inv(x.41)), A.34>, x.66)
+        x     = x.41
+        z     = x.62^x.63
+        z.1   = true
+        z.2   = 'g'^x.41
+    
+    27. A     = A.35
+        gy    = x.61^x.62
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.67*inv((x.62*x.68)))
+        z     = x.61^(x.67*inv(x.68))
+        z.1   = verify(sgy.40, <'R', x.61^x.62, A.35>, pkB.39)
+        z.2   = 'g'^(x.67*inv((x.62*x.68)))
+    
+    28. A     = A.35
+        gy    = x.61^inv(x.62)
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.67*inv(x.68))
+        z     = x.61^(x.67*inv((x.62*x.68)))
+        z.1   = verify(sgy.40, <'R', x.61^inv(x.62), A.35>, pkB.39)
+        z.2   = 'g'^(x.67*inv(x.68))
+    
+    29. A     = A.35
+        gy    = x.61^inv((x.62*x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.62*x.68)
+        z     = x.61^(x.68*inv(x.63))
+        z.1   = verify(sgy.40, <'R', x.61^inv((x.62*x.63)), A.35>, pkB.39)
+        z.2   = 'g'^(x.62*x.68)
+    
+    30. A     = A.35
+        gy    = x.61^inv((x.62*x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.62*inv(x.68))
+        z     = x.61^inv((x.63*x.68))
+        z.1   = verify(sgy.40, <'R', x.61^inv((x.62*x.63)), A.35>, pkB.39)
+        z.2   = 'g'^(x.62*inv(x.68))
+    
+    31. A     = A.35
+        gy    = x.61^(x.62*x.63)
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = inv((x.62*x.68))
+        z     = x.61^(x.63*inv(x.68))
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*x.63), A.35>, pkB.39)
+        z.2   = 'g'^inv((x.62*x.68))
+    
+    32. A     = A.35
+        gy    = x.61^(x.62*x.63)
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.68*inv(x.62))
+        z     = x.61^(x.63*x.68)
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*x.63), A.35>, pkB.39)
+        z.2   = 'g'^(x.68*inv(x.62))
+    
+    33. A     = A.35
+        gy    = x.61^(x.62*inv(x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = inv(x.68)
+        z     = x.61^(x.62*inv((x.63*x.68)))
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*inv(x.63)), A.35>, pkB.39)
+        z.2   = 'g'^inv(x.68)
+    
+    34. A     = A.35
+        gy    = x.61^(x.62*inv(x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = inv((x.62*x.68))
+        z     = x.61^inv((x.63*x.68))
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*inv(x.63)), A.35>, pkB.39)
+        z.2   = 'g'^inv((x.62*x.68))
+    
+    35. A     = A.35
+        gy    = x.61^(x.62*inv(x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.63*x.68)
+        z     = x.61^(x.62*x.68)
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*inv(x.63)), A.35>, pkB.39)
+        z.2   = 'g'^(x.63*x.68)
+    
+    36. A     = A.35
+        gy    = x.61^(x.62*inv(x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.63*x.68*inv(x.62))
+        z     = x.61^x.68
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*inv(x.63)), A.35>, pkB.39)
+        z.2   = 'g'^(x.63*x.68*inv(x.62))
+    
+    37. A     = A.35
+        gy    = x.61^(x.62*inv(x.63))
+        pkB   = pkB.39
+        sgy   = sgy.40
+        x     = (x.63*inv((x.62*x.68)))
+        z     = x.61^inv(x.68)
+        z.1   = verify(sgy.40, <'R', x.61^(x.62*inv(x.63)), A.35>, pkB.39)
+        z.2   = 'g'^(x.63*inv((x.62*x.68)))
+    
+    38. A     = A.35
+        gy    = x.63^x.64
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.63^x.64, A.35>, x.66)
+        x     = inv((x.64*x.68))
+        z     = x.63^inv(x.68)
+        z.1   = true
+        z.2   = 'g'^inv((x.64*x.68))
+    
+    39. A     = A.35
+        gy    = x.63^x.64
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.63^x.64, A.35>, x.66)
+        x     = (x.68*inv(x.64))
+        z     = x.63^x.68
+        z.1   = true
+        z.2   = 'g'^(x.68*inv(x.64))
+    
+    40. A     = A.35
+        gy    = x.63^inv(x.64)
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.63^inv(x.64), A.35>, x.66)
+        x     = inv(x.68)
+        z     = x.63^inv((x.64*x.68))
+        z.1   = true
+        z.2   = 'g'^inv(x.68)
+    
+    41. A     = A.35
+        gy    = x.63^inv(x.64)
+        pkB   = pk(x.66)
+        sgy   = sign(<'R', x.63^inv(x.64), A.35>, x.66)
+        x     = (x.64*x.68)
+        z     = x.63^x.68
+        z.1   = true
+        z.2   = 'g'^(x.64*x.68)
+    
+    42. A     = A.35
+        gy    = x.63^(x.64*x.65*inv(x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.63^(x.64*x.65*inv(x.66)), A.35>, x.68)
+        x     = (x.66*inv(x.64))
+        z     = x.63^x.65
+        z.1   = true
+        z.2   = 'g'^(x.66*inv(x.64))
+    
+    43. A     = A.35
+        gy    = x.63^(x.64*inv((x.42*x.66)))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.63^(x.64*inv((x.42*x.66))), A.35>, x.68)
+        x     = x.42
+        z     = x.63^(x.64*inv(x.66))
+        z.1   = true
+        z.2   = 'g'^x.42
+    
+    44. A     = A.35
+        gy    = x.63^(x.64*inv((x.65*x.66)))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.63^(x.64*inv((x.65*x.66))), A.35>, x.68)
+        x     = (x.65*inv(x.64))
+        z     = x.63^inv(x.66)
+        z.1   = true
+        z.2   = 'g'^(x.65*inv(x.64))
+    
+    45. A     = A.36
+        gy    = x.62^inv((x.63*x.64))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.63*x.69*inv(x.70))
+        z     = x.62^(x.69*inv((x.64*x.70)))
+        z.1   = verify(sgy.41, <'R', x.62^inv((x.63*x.64)), A.36>, pkB.40)
+        z.2   = 'g'^(x.63*x.69*inv(x.70))
+    
+    46. A     = A.36
+        gy    = x.62^(x.63*x.64)
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.69*inv((x.63*x.70)))
+        z     = x.62^(x.64*x.69*inv(x.70))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*x.64), A.36>, pkB.40)
+        z.2   = 'g'^(x.69*inv((x.63*x.70)))
+    
+    47. A     = A.36
+        gy    = x.62^(x.63*x.64*inv(x.65))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = inv((x.63*x.70))
+        z     = x.62^(x.64*inv((x.65*x.70)))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*x.64*inv(x.65)), A.36>,
+                       pkB.40)
+        z.2   = 'g'^inv((x.63*x.70))
+    
+    48. A     = A.36
+        gy    = x.62^(x.63*x.64*inv(x.65))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.65*x.70*inv(x.63))
+        z     = x.62^(x.64*x.70)
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*x.64*inv(x.65)), A.36>,
+                       pkB.40)
+        z.2   = 'g'^(x.65*x.70*inv(x.63))
+    
+    49. A     = A.36
+        gy    = x.62^(x.63*x.64*inv(x.65))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.65*inv((x.63*x.70)))
+        z     = x.62^(x.64*inv(x.70))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*x.64*inv(x.65)), A.36>,
+                       pkB.40)
+        z.2   = 'g'^(x.65*inv((x.63*x.70)))
+    
+    50. A     = A.36
+        gy    = x.62^(x.63*inv(x.64))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.64*x.69*inv((x.63*x.70)))
+        z     = x.62^(x.69*inv(x.70))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv(x.64)), A.36>, pkB.40)
+        z.2   = 'g'^(x.64*x.69*inv((x.63*x.70)))
+    
+    51. A     = A.36
+        gy    = x.62^(x.63*inv(x.64))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.69*inv(x.70))
+        z     = x.62^(x.63*x.69*inv((x.64*x.70)))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv(x.64)), A.36>, pkB.40)
+        z.2   = 'g'^(x.69*inv(x.70))
+    
+    52. A     = A.36
+        gy    = x.62^(x.63*inv(x.64))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.69*inv((x.63*x.70)))
+        z     = x.62^(x.69*inv((x.64*x.70)))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv(x.64)), A.36>, pkB.40)
+        z.2   = 'g'^(x.69*inv((x.63*x.70)))
+    
+    53. A     = A.36
+        gy    = x.62^(x.63*inv((x.64*x.65)))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.64*x.70)
+        z     = x.62^(x.63*x.70*inv(x.65))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv((x.64*x.65))), A.36>,
+                       pkB.40)
+        z.2   = 'g'^(x.64*x.70)
+    
+    54. A     = A.36
+        gy    = x.62^(x.63*inv((x.64*x.65)))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.64*x.70*inv(x.63))
+        z     = x.62^(x.70*inv(x.65))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv((x.64*x.65))), A.36>,
+                       pkB.40)
+        z.2   = 'g'^(x.64*x.70*inv(x.63))
+    
+    55. A     = A.36
+        gy    = x.62^(x.63*inv((x.64*x.65)))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.64*inv(x.70))
+        z     = x.62^(x.63*inv((x.65*x.70)))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv((x.64*x.65))), A.36>,
+                       pkB.40)
+        z.2   = 'g'^(x.64*inv(x.70))
+    
+    56. A     = A.36
+        gy    = x.62^(x.63*inv((x.64*x.65)))
+        pkB   = pkB.40
+        sgy   = sgy.41
+        x     = (x.64*inv((x.63*x.70)))
+        z     = x.62^inv((x.65*x.70))
+        z.1   = verify(sgy.41, <'R', x.62^(x.63*inv((x.64*x.65))), A.36>,
+                       pkB.40)
+        z.2   = 'g'^(x.64*inv((x.63*x.70)))
+    
+    57. A     = A.36
+        gy    = x.64^x.65
+        pkB   = pk(x.67)
+        sgy   = sign(<'R', x.64^x.65, A.36>, x.67)
+        x     = (x.69*inv((x.65*x.70)))
+        z     = x.64^(x.69*inv(x.70))
+        z.1   = true
+        z.2   = 'g'^(x.69*inv((x.65*x.70)))
+    
+    58. A     = A.36
+        gy    = x.64^inv(x.65)
+        pkB   = pk(x.67)
+        sgy   = sign(<'R', x.64^inv(x.65), A.36>, x.67)
+        x     = (x.69*inv(x.70))
+        z     = x.64^(x.69*inv((x.65*x.70)))
+        z.1   = true
+        z.2   = 'g'^(x.69*inv(x.70))
+    
+    59. A     = A.36
+        gy    = x.64^inv((x.65*x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^inv((x.65*x.66)), A.36>, x.68)
+        x     = (x.65*x.70)
+        z     = x.64^(x.70*inv(x.66))
+        z.1   = true
+        z.2   = 'g'^(x.65*x.70)
+    
+    60. A     = A.36
+        gy    = x.64^inv((x.65*x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^inv((x.65*x.66)), A.36>, x.68)
+        x     = (x.65*inv(x.70))
+        z     = x.64^inv((x.66*x.70))
+        z.1   = true
+        z.2   = 'g'^(x.65*inv(x.70))
+    
+    61. A     = A.36
+        gy    = x.64^(x.65*x.66)
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*x.66), A.36>, x.68)
+        x     = inv((x.65*x.70))
+        z     = x.64^(x.66*inv(x.70))
+        z.1   = true
+        z.2   = 'g'^inv((x.65*x.70))
+    
+    62. A     = A.36
+        gy    = x.64^(x.65*x.66)
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*x.66), A.36>, x.68)
+        x     = (x.70*inv(x.65))
+        z     = x.64^(x.66*x.70)
+        z.1   = true
+        z.2   = 'g'^(x.70*inv(x.65))
+    
+    63. A     = A.36
+        gy    = x.64^(x.65*x.66*inv((x.67*x.68)))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.64^(x.65*x.66*inv((x.67*x.68))), A.36>, x.70)
+        x     = (x.67*inv(x.65))
+        z     = x.64^(x.66*inv(x.68))
+        z.1   = true
+        z.2   = 'g'^(x.67*inv(x.65))
+    
+    64. A     = A.36
+        gy    = x.64^(x.65*inv(x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*inv(x.66)), A.36>, x.68)
+        x     = inv(x.70)
+        z     = x.64^(x.65*inv((x.66*x.70)))
+        z.1   = true
+        z.2   = 'g'^inv(x.70)
+    
+    65. A     = A.36
+        gy    = x.64^(x.65*inv(x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*inv(x.66)), A.36>, x.68)
+        x     = inv((x.65*x.70))
+        z     = x.64^inv((x.66*x.70))
+        z.1   = true
+        z.2   = 'g'^inv((x.65*x.70))
+    
+    66. A     = A.36
+        gy    = x.64^(x.65*inv(x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*inv(x.66)), A.36>, x.68)
+        x     = (x.66*x.70)
+        z     = x.64^(x.65*x.70)
+        z.1   = true
+        z.2   = 'g'^(x.66*x.70)
+    
+    67. A     = A.36
+        gy    = x.64^(x.65*inv(x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*inv(x.66)), A.36>, x.68)
+        x     = (x.66*x.70*inv(x.65))
+        z     = x.64^x.70
+        z.1   = true
+        z.2   = 'g'^(x.66*x.70*inv(x.65))
+    
+    68. A     = A.36
+        gy    = x.64^(x.65*inv(x.66))
+        pkB   = pk(x.68)
+        sgy   = sign(<'R', x.64^(x.65*inv(x.66)), A.36>, x.68)
+        x     = (x.66*inv((x.65*x.70)))
+        z     = x.64^inv(x.70)
+        z.1   = true
+        z.2   = 'g'^(x.66*inv((x.65*x.70)))
+    
+    69. A     = A.37
+        gy    = x.63^(x.64*x.65*inv(x.66))
+        pkB   = pkB.41
+        sgy   = sgy.42
+        x     = (x.66*x.71*inv((x.64*x.72)))
+        z     = x.63^(x.65*x.71*inv(x.72))
+        z.1   = verify(sgy.42, <'R', x.63^(x.64*x.65*inv(x.66)), A.37>,
+                       pkB.41)
+        z.2   = 'g'^(x.66*x.71*inv((x.64*x.72)))
+    
+    70. A     = A.37
+        gy    = x.63^(x.64*x.65*inv(x.66))
+        pkB   = pkB.41
+        sgy   = sgy.42
+        x     = (x.71*inv((x.64*x.72)))
+        z     = x.63^(x.65*x.71*inv((x.66*x.72)))
+        z.1   = verify(sgy.42, <'R', x.63^(x.64*x.65*inv(x.66)), A.37>,
+                       pkB.41)
+        z.2   = 'g'^(x.71*inv((x.64*x.72)))
+    
+    71. A     = A.37
+        gy    = x.63^(x.64*x.65*inv((x.66*x.67)))
+        pkB   = pkB.41
+        sgy   = sgy.42
+        x     = (x.66*x.72*inv(x.64))
+        z     = x.63^(x.65*x.72*inv(x.67))
+        z.1   = verify(sgy.42,
+                       <'R', x.63^(x.64*x.65*inv((x.66*x.67))), A.37>, pkB.41)
+        z.2   = 'g'^(x.66*x.72*inv(x.64))
+    
+    72. A     = A.37
+        gy    = x.63^(x.64*x.65*inv((x.66*x.67)))
+        pkB   = pkB.41
+        sgy   = sgy.42
+        x     = (x.66*inv((x.64*x.72)))
+        z     = x.63^(x.65*inv((x.67*x.72)))
+        z.1   = verify(sgy.42,
+                       <'R', x.63^(x.64*x.65*inv((x.66*x.67))), A.37>, pkB.41)
+        z.2   = 'g'^(x.66*inv((x.64*x.72)))
+    
+    73. A     = A.37
+        gy    = x.63^(x.64*inv((x.65*x.66)))
+        pkB   = pkB.41
+        sgy   = sgy.42
+        x     = (x.65*x.71*inv(x.72))
+        z     = x.63^(x.64*x.71*inv((x.66*x.72)))
+        z.1   = verify(sgy.42, <'R', x.63^(x.64*inv((x.65*x.66))), A.37>,
+                       pkB.41)
+        z.2   = 'g'^(x.65*x.71*inv(x.72))
+    
+    74. A     = A.37
+        gy    = x.63^(x.64*inv((x.65*x.66)))
+        pkB   = pkB.41
+        sgy   = sgy.42
+        x     = (x.65*x.71*inv((x.64*x.72)))
+        z     = x.63^(x.71*inv((x.66*x.72)))
+        z.1   = verify(sgy.42, <'R', x.63^(x.64*inv((x.65*x.66))), A.37>,
+                       pkB.41)
+        z.2   = 'g'^(x.65*x.71*inv((x.64*x.72)))
+    
+    75. A     = A.37
+        gy    = x.65^inv((x.66*x.67))
+        pkB   = pk(x.69)
+        sgy   = sign(<'R', x.65^inv((x.66*x.67)), A.37>, x.69)
+        x     = (x.66*x.71*inv(x.72))
+        z     = x.65^(x.71*inv((x.67*x.72)))
+        z.1   = true
+        z.2   = 'g'^(x.66*x.71*inv(x.72))
+    
+    76. A     = A.37
+        gy    = x.65^(x.66*x.67)
+        pkB   = pk(x.69)
+        sgy   = sign(<'R', x.65^(x.66*x.67), A.37>, x.69)
+        x     = (x.71*inv((x.66*x.72)))
+        z     = x.65^(x.67*x.71*inv(x.72))
+        z.1   = true
+        z.2   = 'g'^(x.71*inv((x.66*x.72)))
+    
+    77. A     = A.37
+        gy    = x.65^(x.66*x.67*inv(x.68))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*x.67*inv(x.68)), A.37>, x.70)
+        x     = inv((x.66*x.72))
+        z     = x.65^(x.67*inv((x.68*x.72)))
+        z.1   = true
+        z.2   = 'g'^inv((x.66*x.72))
+    
+    78. A     = A.37
+        gy    = x.65^(x.66*x.67*inv(x.68))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*x.67*inv(x.68)), A.37>, x.70)
+        x     = (x.68*x.72*inv(x.66))
+        z     = x.65^(x.67*x.72)
+        z.1   = true
+        z.2   = 'g'^(x.68*x.72*inv(x.66))
+    
+    79. A     = A.37
+        gy    = x.65^(x.66*x.67*inv(x.68))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*x.67*inv(x.68)), A.37>, x.70)
+        x     = (x.68*inv((x.66*x.72)))
+        z     = x.65^(x.67*inv(x.72))
+        z.1   = true
+        z.2   = 'g'^(x.68*inv((x.66*x.72)))
+    
+    80. A     = A.37
+        gy    = x.65^(x.66*inv(x.67))
+        pkB   = pk(x.69)
+        sgy   = sign(<'R', x.65^(x.66*inv(x.67)), A.37>, x.69)
+        x     = (x.67*x.71*inv((x.66*x.72)))
+        z     = x.65^(x.71*inv(x.72))
+        z.1   = true
+        z.2   = 'g'^(x.67*x.71*inv((x.66*x.72)))
+    
+    81. A     = A.37
+        gy    = x.65^(x.66*inv(x.67))
+        pkB   = pk(x.69)
+        sgy   = sign(<'R', x.65^(x.66*inv(x.67)), A.37>, x.69)
+        x     = (x.71*inv(x.72))
+        z     = x.65^(x.66*x.71*inv((x.67*x.72)))
+        z.1   = true
+        z.2   = 'g'^(x.71*inv(x.72))
+    
+    82. A     = A.37
+        gy    = x.65^(x.66*inv(x.67))
+        pkB   = pk(x.69)
+        sgy   = sign(<'R', x.65^(x.66*inv(x.67)), A.37>, x.69)
+        x     = (x.71*inv((x.66*x.72)))
+        z     = x.65^(x.71*inv((x.67*x.72)))
+        z.1   = true
+        z.2   = 'g'^(x.71*inv((x.66*x.72)))
+    
+    83. A     = A.37
+        gy    = x.65^(x.66*inv((x.67*x.68)))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*inv((x.67*x.68))), A.37>, x.70)
+        x     = (x.67*x.72)
+        z     = x.65^(x.66*x.72*inv(x.68))
+        z.1   = true
+        z.2   = 'g'^(x.67*x.72)
+    
+    84. A     = A.37
+        gy    = x.65^(x.66*inv((x.67*x.68)))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*inv((x.67*x.68))), A.37>, x.70)
+        x     = (x.67*x.72*inv(x.66))
+        z     = x.65^(x.72*inv(x.68))
+        z.1   = true
+        z.2   = 'g'^(x.67*x.72*inv(x.66))
+    
+    85. A     = A.37
+        gy    = x.65^(x.66*inv((x.67*x.68)))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*inv((x.67*x.68))), A.37>, x.70)
+        x     = (x.67*inv(x.72))
+        z     = x.65^(x.66*inv((x.68*x.72)))
+        z.1   = true
+        z.2   = 'g'^(x.67*inv(x.72))
+    
+    86. A     = A.37
+        gy    = x.65^(x.66*inv((x.67*x.68)))
+        pkB   = pk(x.70)
+        sgy   = sign(<'R', x.65^(x.66*inv((x.67*x.68))), A.37>, x.70)
+        x     = (x.67*inv((x.66*x.72)))
+        z     = x.65^inv((x.68*x.72))
+        z.1   = true
+        z.2   = 'g'^(x.67*inv((x.66*x.72)))
+    
+    87. A     = A.38
+        gy    = x.64^(x.65*x.66*inv((x.67*x.68)))
+        pkB   = pkB.42
+        sgy   = sgy.43
+        x     = (x.67*x.73*inv((x.65*x.74)))
+        z     = x.64^(x.66*x.73*inv((x.68*x.74)))
+        z.1   = verify(sgy.43,
+                       <'R', x.64^(x.65*x.66*inv((x.67*x.68))), A.38>, pkB.42)
+        z.2   = 'g'^(x.67*x.73*inv((x.65*x.74)))
+    
+    88. A     = A.38
+        gy    = x.66^(x.67*x.68*inv(x.69))
+        pkB   = pk(x.71)
+        sgy   = sign(<'R', x.66^(x.67*x.68*inv(x.69)), A.38>, x.71)
+        x     = (x.69*x.73*inv((x.67*x.74)))
+        z     = x.66^(x.68*x.73*inv(x.74))
+        z.1   = true
+        z.2   = 'g'^(x.69*x.73*inv((x.67*x.74)))
+    
+    89. A     = A.38
+        gy    = x.66^(x.67*x.68*inv(x.69))
+        pkB   = pk(x.71)
+        sgy   = sign(<'R', x.66^(x.67*x.68*inv(x.69)), A.38>, x.71)
+        x     = (x.73*inv((x.67*x.74)))
+        z     = x.66^(x.68*x.73*inv((x.69*x.74)))
+        z.1   = true
+        z.2   = 'g'^(x.73*inv((x.67*x.74)))
+    
+    90. A     = A.38
+        gy    = x.66^(x.67*x.68*inv((x.69*x.70)))
+        pkB   = pk(x.72)
+        sgy   = sign(<'R', x.66^(x.67*x.68*inv((x.69*x.70))), A.38>, x.72)
+        x     = (x.69*x.74*inv(x.67))
+        z     = x.66^(x.68*x.74*inv(x.70))
+        z.1   = true
+        z.2   = 'g'^(x.69*x.74*inv(x.67))
+    
+    91. A     = A.38
+        gy    = x.66^(x.67*x.68*inv((x.69*x.70)))
+        pkB   = pk(x.72)
+        sgy   = sign(<'R', x.66^(x.67*x.68*inv((x.69*x.70))), A.38>, x.72)
+        x     = (x.69*inv((x.67*x.74)))
+        z     = x.66^(x.68*inv((x.70*x.74)))
+        z.1   = true
+        z.2   = 'g'^(x.69*inv((x.67*x.74)))
+    
+    92. A     = A.38
+        gy    = x.66^(x.67*inv((x.68*x.69)))
+        pkB   = pk(x.71)
+        sgy   = sign(<'R', x.66^(x.67*inv((x.68*x.69))), A.38>, x.71)
+        x     = (x.68*x.73*inv(x.74))
+        z     = x.66^(x.67*x.73*inv((x.69*x.74)))
+        z.1   = true
+        z.2   = 'g'^(x.68*x.73*inv(x.74))
+    
+    93. A     = A.38
+        gy    = x.66^(x.67*inv((x.68*x.69)))
+        pkB   = pk(x.71)
+        sgy   = sign(<'R', x.66^(x.67*inv((x.68*x.69))), A.38>, x.71)
+        x     = (x.68*x.73*inv((x.67*x.74)))
+        z     = x.66^(x.73*inv((x.69*x.74)))
+        z.1   = true
+        z.2   = 'g'^(x.68*x.73*inv((x.67*x.74)))
+    
+    94. A     = A.39
+        gy    = x.67^(x.68*x.69*inv((x.70*x.71)))
+        pkB   = pk(x.73)
+        sgy   = sign(<'R', x.67^(x.68*x.69*inv((x.70*x.71))), A.39>, x.73)
+        x     = (x.70*x.75*inv((x.68*x.76)))
+        z     = x.67^(x.69*x.75*inv((x.71*x.76)))
+        z.1   = true
+        z.2   = 'g'^(x.70*x.75*inv((x.68*x.76)))
+  */
+
+restriction Equality:
+  "∀ x y #i. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+restriction unique_i:
+  "∀ id1 id2 #k1 #k2.
+    ((Create( id1, 'I' ) @ #k1) ∧ (Create( id2, 'I' ) @ #k2)) ⇒
+    (id1 = id2)"
+  // safety formula
+
+restriction unique_r:
+  "∀ id1 id2 #k1 #k2.
+    ((Create( id1, 'R' ) @ #k1) ∧ (Create( id2, 'R' ) @ #k2)) ⇒
+    (id1 = id2)"
+  // safety formula
+
+lemma executability:
+  exists-trace
+  "∃ A B Kab #i #j.
+    (((Secret( A, Kab ) @ #i) ∧ (Secret( B, Kab ) @ #j)) ∧
+     (¬(A = B))) ∧
+    (¬(∃ X #k. Reveal( X ) @ #k))"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ A B Kab #i #j.
+  (Secret( A, Kab ) @ #i) ∧ (Secret( B, Kab ) @ #j)
+ ∧
+  (¬(A = B)) ∧ (∀ X #k. (Reveal( X ) @ #k) ⇒ ⊥)"
+*/
+simplify
+solve( Secret( A, Kab ) @ #i )
+  case A_Rec
+  solve( St_A_1( A, id, B, skA, pk(x), x.1 ) ▶₀ #i )
+    case A_Send
+    solve( Secret( B, h(z) ) @ #j )
+      case B_Send
+      solve( St_B_1( B, id.1, A.2, skB, pkA, gx ) ▶₀ #j )
+        case B_Rec
+        solve( !KU( sign(<'R', gy, $A>, ~sk.1) ) @ #vk.3 )
+          case B_Send
+          solve( !KU( sign(<'I', 'g'^~x, $A.1>, ~sk.2) ) @ #vk.8 )
+            case A_Send
+            solve( !KU( pk(~sk.1) ) @ #vk.5 )
+              case B_Send
+              solve( !KU( pk(~sk) ) @ #vk.9 )
+                case A_Send
+                solve( !KU( 'g'^~y ) @ #vk.8 )
+                  case B_Send
+                  solve( !KU( 'g'^~x ) @ #vk.9 )
+                    case A_Send
+                    SOLVED // trace found
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j. Running( b, a, <'I', 'R', t> ) @ #j) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j. (Running( b, a, <'I', 'R', t> ) @ #j) ⇒ ⊥) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_Rec
+  solve( St_A_1( a, id, b, skA, pk(x), x.1 ) ▶₀ #i )
+    case A_Send
+    solve( !KU( sign(<'R', gy, $A>, ~sk.1) ) @ #vk.3 )
+      case B_Send
+      solve( !KU( sign(<'I', gx, $A.1>, ~sk.2) ) @ #vk.8 )
+        case A_Send
+        by contradiction /* from formulas */
+      next
+        case c_sign
+        solve( !KU( ~sk.2 ) @ #vk.12 )
+          case Reveal_Ltk
+          by contradiction /* from formulas */
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~sk.1 ) @ #vk.7 )
+        case Reveal_Ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementINITIATOR:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'I', 'R', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'I', 'R', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'I', 'R', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'I', 'R', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'I', 'R', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'I', 'R', t> ) @ #i )
+  case A_Rec
+  solve( St_A_1( a, id, b, skA, pk(x), x.1 ) ▶₀ #i )
+    case A_Send
+    solve( !KU( sign(<'R', gy, $A>, ~sk.1) ) @ #vk.3 )
+      case B_Send
+      solve( !KU( sign(<'I', gx, $A.1>, ~sk.2) ) @ #vk.8 )
+        case A_Send
+        solve( (#i2 < #i)  ∥ (#i < #i2) )
+          case case_1
+          solve( Commit( a2, b2, <'I', 'R', h('g'^(~x*~y)), 'g'^~x, 'g'^~y>
+                 ) @ #i2 )
+            case A_Rec
+            solve( St_A_1( a2, id.1, b2, skA, pk(x.1), ~x ) ▶₀ #i2 )
+              case A_Send
+              by contradiction /* cyclic */
+            qed
+          qed
+        next
+          case case_2
+          solve( Commit( a2, b2, <'I', 'R', h('g'^(~x*~y)), 'g'^~x, 'g'^~y>
+                 ) @ #i2 )
+            case A_Rec
+            solve( St_A_1( a2, id.1, b2, skA, pk(x.1), ~x ) ▶₀ #i2 )
+              case A_Send
+              by contradiction /* cyclic */
+            qed
+          qed
+        qed
+      next
+        case c_sign
+        solve( !KU( ~sk.2 ) @ #vk.12 )
+          case Reveal_Ltk
+          by contradiction /* from formulas */
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~sk.1 ) @ #vk.7 )
+        case Reveal_Ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma noninjectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'R', 'I', t> ) @ #i) ⇒
+    ((∃ #j. Running( b, a, <'R', 'I', t> ) @ #j) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #j. (Running( b, a, <'R', 'I', t> ) @ #j) ⇒ ⊥) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_Send
+  solve( St_B_1( a, id, b, skB, pkA, t ) ▶₀ #i )
+    case B_Rec
+    solve( !KU( sign(<'I', t, $A>, ~sk.1) ) @ #vk.3 )
+      case A_Send
+      by contradiction /* from formulas */
+    next
+      case c_sign
+      solve( !KU( ~sk.1 ) @ #vk.7 )
+        case Reveal_Ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+lemma injectiveagreementRESPONDER:
+  all-traces
+  "∀ a b t #i.
+    (Commit( a, b, <'R', 'I', t> ) @ #i) ⇒
+    ((∃ #j.
+       (Running( b, a, <'R', 'I', t> ) @ #j) ∧
+       (¬(∃ a2 b2 #i2.
+           (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ (¬(#i2 = #i))))) ∨
+     (∃ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ a b t #i.
+  (Commit( a, b, <'R', 'I', t> ) @ #i)
+ ∧
+  (∀ #j.
+    (Running( b, a, <'R', 'I', t> ) @ #j)
+   ⇒
+    ∃ a2 b2 #i2.
+     (Commit( a2, b2, <'R', 'I', t> ) @ #i2) ∧ ¬(#i2 = #i)) ∧
+  (∀ X #r. (Reveal( X ) @ #r) ∧ (Honest( X ) @ #i) ⇒ ⊥)"
+*/
+simplify
+solve( Commit( a, b, <'R', 'I', t> ) @ #i )
+  case B_Send
+  solve( St_B_1( a, id, b, skB, pkA, t ) ▶₀ #i )
+    case B_Rec
+    solve( !KU( sign(<'I', t, $A>, ~sk.1) ) @ #vk.3 )
+      case A_Send
+      solve( (#i2 < #i)  ∥ (#i < #i2) )
+        case case_1
+        solve( Commit( a2, b2, <'R', 'I', 'g'^~x> ) @ #i2 )
+          case B_Send
+          solve( St_B_1( a2, id.1, b2, skB, pkA, 'g'^~x ) ▶₀ #i2 )
+            case B_Rec
+            by contradiction /* cyclic */
+          qed
+        qed
+      next
+        case case_2
+        solve( Commit( a2, b2, <'R', 'I', 'g'^~x> ) @ #i2 )
+          case B_Send
+          solve( St_B_1( a2, id.1, b2, skB, pkA, 'g'^~x ) ▶₀ #i2 )
+            case B_Rec
+            by contradiction /* cyclic */
+          qed
+        qed
+      qed
+    next
+      case c_sign
+      solve( !KU( ~sk.1 ) @ #vk.7 )
+        case Reveal_Ltk
+        by contradiction /* from formulas */
+      qed
+    qed
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end
